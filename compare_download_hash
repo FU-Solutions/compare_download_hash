@@ -1,0 +1,230 @@
+#!/bin/bash
+
+# Ziel des Scripts
+#	Vergleichen des md5sum Hashes einer Datei mit einem vorgegebenen Wert.
+#
+#	created		- Ullrich Weichert
+#	edit 		- 
+#	last edit	- 01.07.2017
+#	version		- 1.0
+VERSION="1.0"
+RELEASE="Aufmerksame Apostel analysieren afrikanische Apfelernten."
+
+##	
+#	Erklärung:
+#	==========
+#	Dieses Script lädt eine Datei herunter und prüft den md5sum Hashwert dieser Datei.
+#	Stimmt dieser mit einem gegebenen Wert überein, so gibt das Script eine OK Meldung aus.
+#	Das SCript verwendet die Tools cURL und md5sum.
+#	
+#	Usage : SCRIPT -U <URL> -T <Timeout> [-h] [-v] [-V] [-b] [-W]
+#		-U	URL zum Downloadlink
+#		-T	Angabe eines Timeout Wertes in Sekunden
+#		-h	Zeigt diese Hilfe an
+#		-v	Zeigt die Version an
+#		-V	Sorgt für eine sehr ausführliche Ausgabe
+#		-b	Batchausgabe für Überwachungssysteme
+#		-W	Für mehr Wumms!
+#
+#	Standardtimeout des Scriptes ist nach ${CURL_TIMEOUT} Sekunden.
+#	Wird keiner der optionalen Parameter übergeben, liefert das Script $(basename $0) die Gesamtantwortzeit zurück.
+##	
+
+#### Pruefen ob das Script schon laeuft
+pname="$(echo $0|sed 's@.*/@@')"
+semname="${pname}.pid"
+semfile="/tmp/${semname}"
+if [ -f "${semfile}" ]; then
+        pid="$(cat "${semfile}")"
+        if [ -f "/proc/${pid}/stat" ]; then
+                id="$(cat /proc/$$/stat|awk '{print $2}')"
+                if [ -n "$(grep -P "\Q${id}\E" "/proc/${pid}/stat")" ]; then
+                        echo "$(date): $pname is already running!"
+                        exit 1
+                fi
+        fi
+fi
+echo $$ > "${semfile}"
+
+#### Variablen
+CURL_TIMEOUT="5";
+CURL_EXITCODES="curl_exitcodes";
+COMPARE_HASH="";
+CURL=$(type -p curl);
+MD5SUM=$(type -p md5sum);
+AWK=$(type -p awk);
+CHECK_DIR="/tmp/";
+CHECK_FILE="check.xml";
+
+#### Functions
+wumms ()
+{
+	echo -e "\n"
+	echo "  WWWWWWWW                           WWWWWWWWUUUUUUUU     UUUUUUUUMMMMMMMM               MMMMMMMMMMMMMMMM               MMMMMMMM   SSSSSSSSSSSSSSS  !!!  !!!  !!! "
+	echo "  W::::::W                           W::::::WU::::::U     U::::::UM:::::::M             M:::::::MM:::::::M             M:::::::M SS:::::::::::::::S!!:!!!!:!!!!:!!"
+	echo "  W::::::W                           W::::::WU::::::U     U::::::UM::::::::M           M::::::::MM::::::::M           M::::::::MS:::::SSSSSS::::::S!:::!!:::!!:::!"
+	echo "  W::::::W                           W::::::WUU:::::U     U:::::UUM:::::::::M         M:::::::::MM:::::::::M         M:::::::::MS:::::S     SSSSSSS!:::!!:::!!:::!"
+	echo "   W:::::W           WWWWW           W:::::W  U:::::U     U:::::U M::::::::::M       M::::::::::MM::::::::::M       M::::::::::MS:::::S            !:::!!:::!!:::!"
+	echo "    W:::::W         W:::::W         W:::::W   U:::::D     D:::::U M:::::::::::M     M:::::::::::MM:::::::::::M     M:::::::::::MS:::::S            !:::!!:::!!:::!"
+	echo "     W:::::W       W:::::::W       W:::::W    U:::::D     D:::::U M:::::::M::::M   M::::M:::::::MM:::::::M::::M   M::::M:::::::M S::::SSSS         !:::!!:::!!:::!"
+	echo "      W:::::W     W:::::::::W     W:::::W     U:::::D     D:::::U M::::::M M::::M M::::M M::::::MM::::::M M::::M M::::M M::::::M  SS::::::SSSSS    !:::!!:::!!:::!"
+	echo "       W:::::W   W:::::W:::::W   W:::::W      U:::::D     D:::::U M::::::M  M::::M::::M  M::::::MM::::::M  M::::M::::M  M::::::M    SSS::::::::SS  !:::!!:::!!:::!"
+	echo "        W:::::W W:::::W W:::::W W:::::W       U:::::D     D:::::U M::::::M   M:::::::M   M::::::MM::::::M   M:::::::M   M::::::M       SSSSSS::::S !:::!!:::!!:::!"
+	echo "         W:::::W:::::W   W:::::W:::::W        U:::::D     D:::::U M::::::M    M:::::M    M::::::MM::::::M    M:::::M    M::::::M            S:::::S!!:!!!!:!!!!:!!"
+	echo "          W:::::::::W     W:::::::::W         U::::::U   U::::::U M::::::M     MMMMM     M::::::MM::::::M     MMMMM     M::::::M            S:::::S !!!  !!!  !!! "
+	echo "           W:::::::W       W:::::::W          U:::::::UUU:::::::U M::::::M               M::::::MM::::::M               M::::::MSSSSSSS     S:::::S               "
+	echo "            W:::::W         W:::::W            UU:::::::::::::UU  M::::::M               M::::::MM::::::M               M::::::MS::::::SSSSSS:::::S !!!  !!!  !!! "
+	echo "             W:::W           W:::W               UU:::::::::UU    M::::::M               M::::::MM::::::M               M::::::MS:::::::::::::::SS !!:!!!!:!!!!:!!"
+	echo "              WWW             WWW                  UUUUUUUUU      MMMMMMMM               MMMMMMMMMMMMMMMM               MMMMMMMM SSSSSSSSSSSSSSS    !!!  !!!  !!! "
+	echo ""
+}
+usage ()
+{
+	echo -e "\n\n$(basename $0)"
+	echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+	echo "Dieses Script lädt eine Datei herunter und prüft den md5sum Hashwert dieser Datei."
+	echo "Stimmt dieser mit einem gegebenen Wert überein, so gibt das Script eine OK Meldung aus."
+	echo -e "Das Script verwendet die Tools cURL und md5sum.\n\n"
+	echo "Usage : $(basename $0) -U <URL> -m <HASH> [-T] <Timeout> [-h] [-v] [-V] [-b] [-W]"
+	echo -e "\n\t \e[1m-U\e[0m\tAngabe des Downloadlinks"
+	echo -e "\t \e[1m-m\e[0m\tAngabe des md5sum hashes"
+	echo -e "\t -T\tTimeout"
+	echo -e "\t -h\tGibt diese Hilfe aus"
+	echo -e "\t -v\tZeigt die Version an"
+	echo -e "\t -V\tAusführliche Ausgaben"
+	echo -e "\t -b\tOptimierte Ausgabe für Überwachungssysteme"
+	echo -e "\t\t0 - OK"
+	echo -e "\t\t1 - !OK"
+	echo -e "\t\tX - Have a look at curl EXITCODES"
+	echo -e ""
+	echo -e "\t -W\tWenn es schnell sein muss!"
+	echo -e ""
+	echo "Standardtimeout des Scriptes ist nach ${CURL_TIMEOUT} Sekunden."
+	echo -e "Dieses Script ist \e[1mGeschwindigkeitsoptimiert!\e[0m"
+	echo -e "\n\e[92mVersion: $VERSION"
+	echo -e "Release: $RELEASE\e[0m"
+	exit
+}
+
+#### Optionen
+while getopts m:U:mvVbWvh opt 2>/dev/null
+do
+   case $opt in
+	U)	DST_URL=$OPTARG;;
+	T) 	CURL_TIMEOUT=$OPTARG;;
+	m)	COMPARE_HASH=$OPTARG;;
+	V)	VERBOSE_OUT=true;;
+	b)	BATCH_OUT=true;;
+	W)	WUMMMMS=true;;
+	v) 	echo -e "\n$(basename $0) - Version: ${VERSION}"
+		exit;;
+    \?) echo -e "\n($0): \033[31mERROR:\e[0m - Ein Fehler bei der Optionsangabe"
+        exit;;
+	h|*)usage
+		exit;;
+   esac
+done
+
+#### Check dependencies
+# Überprüfung der benötigten Programme
+if [[ ! -f ${CURL_EXITCODES} ]];
+	then
+		echo -e "\033[31mERROR:\e[0m Exitcodeliste konnte nicht geladen werden.\nDie cURL Exitcodes müssen im selben Verzeichnis wie $(basename $0) liegen. Programmabbruch!\n"
+		exit
+fi
+if [[ -z ${CURL} ]]; 
+	then
+		echo -e "\033[31mERROR:\e[0m cURL wurde nicht gefunden, wird aber gebraucht. Programmabbruch!\n"
+		exit
+fi
+if [[ -z ${MD5SUM} ]]; 
+	then
+		echo -e "\033[31mERROR:\e[0m md5sum wurde nicht gefunden, wird aber gebraucht. Programmabbruch!\n"
+		exit
+fi
+if [[ -z ${AWK} ]]; 
+	then
+		echo -e "\033[31mERROR:\e[0m wurde nicht gefunden, wird aber gebraucht. Programmabbruch!\n"
+		exit
+fi
+
+# Überprüfung der Optionen
+if [[ -z ${DST_URL} ]];
+	then
+		echo -e "\033[31mERROR:\e[0m Es wurde keine URL übergeben. Programmabbruch!\n"
+		usage
+		exit  
+fi
+if [[ -z ${COMPARE_HASH} ]];
+	then 
+		echo -e "\033[31mERROR:\e[0m Es wurde keine md5sum übergeben. Programmabbruch!\n"
+		usage
+		exit
+fi
+
+#### Maincode
+# Herunterladen der Datei
+$CURL ${DST_URL} --connect-timeout ${CURL_TIMEOUT} --silent -o ${CHECK_DIR}${CHECK_FILE}
+EXITCODE=$?
+## CURL CHECK
+if [[ ${EXITCODE} != 0 ]];
+then
+		if [[ ${BATCH_OUT} ]];
+			then
+				echo "${EXITCODE}"
+				exit
+			else
+				if [[ ${VERBOSE_OUT} ]];
+					then 
+						echo -e "\ncURL konnte das Ziel leider nicht erreichen. Es wurde folgende Ursache erkannt:\n"
+						echo -e "\033[31mERROR:\e[0m $(grep -A1 "(${EXITCODE})" ${CURL_EXITCODES})"
+						exit
+					else
+						echo -e "\n\033[31mERROR:\e[0m cURL EXITCODE: ${EXITCODE}."
+						exit
+				fi
+		fi
+fi
+# Hashwert bilden
+RESULT=$(${MD5SUM} ${CHECK_DIR}${CHECK_FILE} | $AWK '{print $1}')
+
+#### Ausgabe
+
+if [[ ${WUMMMMS} ]];
+	then
+		wumms
+fi
+
+if [[ ${RESULT} == ${COMPARE_HASH} ]];
+	then
+		if [[ ${BATCH_OUT} ]];
+			then
+				echo "0"
+			else
+				if [[ ${VERBOSE_OUT} ]];
+					then 
+						echo -e "\nDer Inhalt der Seite \"${DST_URL}\" wurde in der Datei \"${CHECK_FILE}\" gespeichert."
+						echo -e "Es wurde per md5sum folgender Hashwert gebildet:\n\t${RESULT}"
+						echo "Dieser stimmt mit Ihrem Hashwert \"${COMPARE_HASH}\" überein."
+					else
+						echo -e "\e[32mOK:\e[0m Der HASH-Wert stimmt überein."
+				fi
+        fi
+	else
+		if [[ ${BATCH_OUT} ]];
+			then
+				echo "1"
+			else
+				if [[ ${VERBOSE_OUT} ]];
+					then 
+						echo "Der Inhalt der Seite \"${DST_URL}\" wurde in der Datei \"${CHECK_FILE}\" gespeichert."
+						echo -e "Es wurde per md5sum folgender Hashwert gebildet:\n\t${RESULT}"
+						echo "Dieser stimmt mit Ihrem Hashwert \"${COMPARE_HASH}\" nicht überein."
+					else
+						echo -e "\033[31mERROR:\e[0m Der HASH-Wert stimmt nicht überein."
+				fi
+		fi
+fi
+
+#### Cleanup
+rm ${CHECK_DIR}${CHECK_FILE}
